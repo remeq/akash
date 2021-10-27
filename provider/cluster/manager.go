@@ -353,30 +353,34 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 		blockedHostnames[hostname] = struct{}{}
 	}
 	hosts := make(map[string]manifest.ServiceExpose)
+	leasedIPs := make([]manifest.ServiceExpose, 0)
 	hostToServiceName := make(map[string]string)
 
-	// clear this out so it gets rebpopulated
+	// clear this out so it gets repopulated
 	dm.currentHostnames = make(map[string]struct{})
+	// Iterate over each entry, extracting the ingress services & leased IPs
 	for _, service := range dm.mgroup.Services {
 		for _, expose := range service.Expose {
-			if !util.ShouldBeIngress(expose) {
-				continue
-			}
-
-			if dm.config.DeploymentIngressStaticHosts {
-				uid := clusterutil.IngressHost(dm.lease, service.Name)
-				host := fmt.Sprintf("%s.%s", uid, dm.config.DeploymentIngressDomain)
-				hosts[host] = expose
-				hostToServiceName[host] = service.Name
-			}
-
-			for _, host := range expose.Hosts {
-				_, blocked := blockedHostnames[host]
-				if !blocked {
-					dm.currentHostnames[host] = struct{}{}
+			if util.ShouldBeIngress(expose) {
+				if dm.config.DeploymentIngressStaticHosts {
+					uid := clusterutil.IngressHost(dm.lease, service.Name)
+					host := fmt.Sprintf("%s.%s", uid, dm.config.DeploymentIngressDomain)
 					hosts[host] = expose
 					hostToServiceName[host] = service.Name
 				}
+
+				for _, host := range expose.Hosts {
+					_, blocked := blockedHostnames[host]
+					if !blocked {
+						dm.currentHostnames[host] = struct{}{}
+						hosts[host] = expose
+						hostToServiceName[host] = service.Name
+					}
+				}
+			}
+
+			if expose.IP {
+				leasedIPs = append(leasedIPs, expose)
 			}
 		}
 	}
@@ -398,6 +402,48 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 		}
 	}
 
+	const ipLimit = 100
+	allocatedIPs := make(map[string][]manifest.ServiceExpose)
+	usedPorts := make(map[string]map[string]manifest.ServiceExpose, ipLimit)
+	makeIPSharingLKey := func(lID mtypes.LeaseID, i int) string {
+		return fmt.Sprintf("%s-ip-%d", lID.String(), i)
+	}
+	for i := 0; i != ipLimit; i++ {
+		sharingKey := makeIPSharingLKey(dm.lease, i)
+		usedPorts[sharingKey] = make(map[string]manifest.ServiceExpose)
+	}
+
+	for _, serviceExpose := range leasedIPs {
+		portKey := fmt.Sprintf("%v-%v", serviceExpose.Proto, clusterutil.ExposeExternalPort(serviceExpose))
+
+		selectedIPIndex := -1
+		for i := 0; i != ipLimit; i++ {
+			sharingKey := makeIPSharingLKey(dm.lease, i)
+			_, inUse := usedPorts[sharingKey][portKey]
+			if !inUse {
+				selectedIPIndex = i
+			}
+		}
+
+		if selectedIPIndex == -1 {
+			// TODO - return an error here
+			panic("maxed out on IPs")
+		}
+
+		k := makeIPSharingLKey(dm.lease, selectedIPIndex)
+		usedPorts[k][portKey] = serviceExpose
+
+		serviceExposeList := allocatedIPs[k]
+		serviceExposeList = append(serviceExposeList, serviceExpose)
+		allocatedIPs[k] = serviceExposeList
+	}
+
+	for sharingKey, allocatedIP := range allocatedIPs {
+		for _, serviceExpose := range allocatedIP {
+			externalPort := clusterutil.ExposeExternalPort(serviceExpose)
+			err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.Service, uint32(externalPort), sharingKey)
+		}
+	}
 	return withheldHostnames, nil
 }
 

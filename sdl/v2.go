@@ -52,6 +52,7 @@ type v2ExposeTo struct {
 	Service     string        `yaml:"service,omitempty"`
 	Global      bool          `yaml:"global,omitempty"`
 	HTTPOptions v2HTTPOptions `yaml:"http_options"`
+	IP bool `yaml:"ip"`
 }
 
 type v2HTTPOptions struct {
@@ -233,6 +234,7 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 							Service:      to.Service,
 							Global:       to.Global,
 							Hosts:        expose.Accept.Items,
+							IP: 		to.IP,
 						}
 
 						kind := types.Endpoint_RANDOM_PORT
@@ -241,6 +243,9 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 						}
 
 						endpoints = append(endpoints, types.Endpoint{Kind: kind})
+						if v.IP {
+							endpoints = append(endpoints, types.Endpoint{Kind: types.Endpoint_LEASED_IP})
+						}
 					}
 				}
 			}

@@ -88,6 +88,7 @@ type ServiceExpose struct {
 	Global       bool
 	Hosts        []string
 	HTTPOptions  ServiceExposeHTTPOptions
+	IP	bool
 }
 
 type ServiceExposeHTTPOptions struct {

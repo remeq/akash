@@ -88,6 +88,8 @@ type Client interface {
 	PurgeDeclaredHostnames(ctx context.Context, lID mtypes.LeaseID) error
 
 	PurgeDeclaredHostname(ctx context.Context, lID mtypes.LeaseID, hostname string) error
+
+	DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, sharingKey string) error
 }
 
 func ErrorIsOkToSendToClient(err error) bool {
@@ -565,4 +567,8 @@ func (c *nullClient) GetManifestGroup(context.Context, mtypes.LeaseID) (bool, ak
 
 func (c *nullClient) AllHostnames(context.Context) ([]ctypes.ActiveHostname, error) {
 	return nil, nil
+}
+
+func (c *nullClient) DeclareIP(ctx context.Context, lID mtypes.LeaseID, serviceName string, externalPort uint32, sharingKey string) error {
+	return errNotImplemented
 }
