@@ -221,31 +221,33 @@ func (sdl *v2) DeploymentGroups() ([]*dtypes.GroupSpec, error) {
 			endpoints := make([]types.Endpoint, 0)
 			for _, expose := range sdl.Services[svcName].Expose {
 				for _, to := range expose.To {
-					if to.Global {
-						proto, err := manifest.ParseServiceProtocol(expose.Proto)
-						if err != nil {
-							return nil, err
-						}
-						// This value is created just so it can be passed to the utility function
-						v := manifest.ServiceExpose{
-							Port:         expose.Port,
-							ExternalPort: expose.As,
-							Proto:        proto,
-							Service:      to.Service,
-							Global:       to.Global,
-							Hosts:        expose.Accept.Items,
-							IP: 		to.IP,
-						}
+					if !to.Global {
+						continue
+					}
 
-						kind := types.Endpoint_RANDOM_PORT
-						if providerUtil.ShouldBeIngress(v) {
-							kind = types.Endpoint_SHARED_HTTP
-						}
+					proto, err := manifest.ParseServiceProtocol(expose.Proto)
+					if err != nil {
+						return nil, err
+					}
+					// This value is created just so it can be passed to the utility function
+					v := manifest.ServiceExpose{
+						Port:         expose.Port,
+						ExternalPort: expose.As,
+						Proto:        proto,
+						Service:      to.Service,
+						Global:       to.Global,
+						Hosts:        expose.Accept.Items,
+						IP: 		to.IP,
+					}
 
-						endpoints = append(endpoints, types.Endpoint{Kind: kind})
-						if v.IP {
-							endpoints = append(endpoints, types.Endpoint{Kind: types.Endpoint_LEASED_IP})
-						}
+					kind := types.Endpoint_RANDOM_PORT
+					if providerUtil.ShouldBeIngress(v) {
+						kind = types.Endpoint_SHARED_HTTP
+					}
+
+					endpoints = append(endpoints, types.Endpoint{Kind: kind})
+					if v.IP {
+						endpoints = append(endpoints, types.Endpoint{Kind: types.Endpoint_LEASED_IP})
 					}
 				}
 			}
@@ -323,6 +325,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 							Global:       to.Global,
 							Hosts:        expose.Accept.Items,
 							HTTPOptions:  httpOptions,
+							IP: to.IP,
 						})
 					}
 				} else { // Nothing explicitly set, fill in without any information from "expose.To"
@@ -334,6 +337,7 @@ func (sdl *v2) Manifest() (manifest.Manifest, error) {
 						Global:       false,
 						Hosts:        expose.Accept.Items,
 						HTTPOptions:  httpOptions,
+						IP: false,
 					})
 				}
 			}

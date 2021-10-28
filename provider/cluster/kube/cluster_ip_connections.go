@@ -19,7 +19,7 @@ func (c *client) DeclareIP(ctx context.Context, lID mtypes.LeaseID,  serviceName
 		return err
 	}
 	leaseIDHash := h.Sum(nil)
-	resourceName := fmt.Sprintf("%X-%s-%d", leaseIDHash, serviceName, externalPort)
+	resourceName := fmt.Sprintf("%x-%s-%d", leaseIDHash, serviceName, externalPort)
 
 	labels := map[string]string{
 		builder.AkashManagedLabelName: "true",
@@ -59,7 +59,9 @@ func (c *client) DeclareIP(ctx context.Context, lID mtypes.LeaseID,  serviceName
 	if exists {
 		_, err = c.ac.AkashV1().ProviderLeasedIPs(c.ns).Update(ctx, &obj, metav1.UpdateOptions{})
 	} else {
+		obj.ResourceVersion = ""
 		_, err = c.ac.AkashV1().ProviderLeasedIPs(c.ns).Create(ctx, &obj, metav1.CreateOptions{})
 	}
+
 	return err
 }

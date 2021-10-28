@@ -295,6 +295,11 @@ func (dm *deploymentManager) startTeardown() <-chan error {
 	return dm.do(dm.doTeardown)
 }
 
+type serviceExposeWithServiceName struct {
+	expose manifest.ServiceExpose
+	name string
+}
+
 func (dm *deploymentManager) doDeploy() ([]string, error) {
 	var err error
 
@@ -353,7 +358,7 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 		blockedHostnames[hostname] = struct{}{}
 	}
 	hosts := make(map[string]manifest.ServiceExpose)
-	leasedIPs := make([]manifest.ServiceExpose, 0)
+	leasedIPs := make([]serviceExposeWithServiceName, 0)
 	hostToServiceName := make(map[string]string)
 
 	// clear this out so it gets repopulated
@@ -379,8 +384,8 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 				}
 			}
 
-			if expose.IP {
-				leasedIPs = append(leasedIPs, expose)
+			if expose.Global && expose.IP {
+				leasedIPs = append(leasedIPs, serviceExposeWithServiceName{expose: expose, name: service.Name})
 			}
 		}
 	}
@@ -403,18 +408,19 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 	}
 
 	const ipLimit = 100
-	allocatedIPs := make(map[string][]manifest.ServiceExpose)
-	usedPorts := make(map[string]map[string]manifest.ServiceExpose, ipLimit)
+	allocatedIPs := make(map[string][]serviceExposeWithServiceName)
+	usedPorts := make(map[string]map[string]serviceExposeWithServiceName, ipLimit)
 	makeIPSharingLKey := func(lID mtypes.LeaseID, i int) string {
 		return fmt.Sprintf("%s-ip-%d", lID.String(), i)
 	}
 	for i := 0; i != ipLimit; i++ {
 		sharingKey := makeIPSharingLKey(dm.lease, i)
-		usedPorts[sharingKey] = make(map[string]manifest.ServiceExpose)
+		usedPorts[sharingKey] = make(map[string]serviceExposeWithServiceName)
 	}
 
+	dm.log.Debug("processing ip directives", "cnt", len(leasedIPs))
 	for _, serviceExpose := range leasedIPs {
-		portKey := fmt.Sprintf("%v-%v", serviceExpose.Proto, clusterutil.ExposeExternalPort(serviceExpose))
+		portKey := fmt.Sprintf("%v-%v", serviceExpose.expose.Proto, clusterutil.ExposeExternalPort(serviceExpose.expose))
 
 		selectedIPIndex := -1
 		for i := 0; i != ipLimit; i++ {
@@ -422,6 +428,7 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 			_, inUse := usedPorts[sharingKey][portKey]
 			if !inUse {
 				selectedIPIndex = i
+				break
 			}
 		}
 
@@ -440,8 +447,12 @@ func (dm *deploymentManager) doDeploy() ([]string, error) {
 
 	for sharingKey, allocatedIP := range allocatedIPs {
 		for _, serviceExpose := range allocatedIP {
-			externalPort := clusterutil.ExposeExternalPort(serviceExpose)
-			err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.Service, uint32(externalPort), sharingKey)
+			externalPort := clusterutil.ExposeExternalPort(serviceExpose.expose)
+
+			err = dm.client.DeclareIP(ctx, dm.lease, serviceExpose.name, uint32(externalPort), sharingKey)
+			if err != nil {
+				return withheldHostnames, err
+			}
 		}
 	}
 	return withheldHostnames, nil
