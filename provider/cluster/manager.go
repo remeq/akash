@@ -484,7 +484,7 @@ func (dm *deploymentManager) doTeardown() error {
 	result = retry.Do(func() error {
 		err := dm.client.PurgeDeclaredHostnames(ctx, dm.lease)
 		if err != nil {
-			dm.log.Error("lease teardown failed", "err", err)
+			dm.log.Error("purge declared hostname failure", "err", err)
 		}
 		return err
 	},
@@ -493,7 +493,20 @@ func (dm *deploymentManager) doTeardown() error {
 		retry.MaxDelay(3000*time.Millisecond),
 		retry.DelayType(retry.BackOffDelay),
 		retry.LastErrorOnly(true))
+	// TODO - counter
 
+	result = retry.Do(func() error {
+		err := dm.client.PurgeDeclaredIPs(ctx, dm.lease)
+		if err != nil {
+			dm.log.Error("purge declared ips failure", "err", err)
+		}
+		return err
+	},
+		retry.Attempts(50),
+		retry.Delay(100*time.Millisecond),
+		retry.MaxDelay(3000*time.Millisecond),
+		retry.DelayType(retry.BackOffDelay),
+		retry.LastErrorOnly(true))
 	// TODO - counter
 	return result
 }
